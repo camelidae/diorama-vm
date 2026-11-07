@@ -1,0 +1,57 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - errorlint
+    - ineffassign
+    - revive
+    - staticcheck
+    - modernize
+  settings:
+    errorlint:
+      errorf: true
+      asserts: false
+      comparison: false
+    staticcheck:
+      checks:
+        - all
+        - -SA1019
+        - -ST1003
+        - -SA5011
+        - -QF*
+  exclusions:
+    presets:
+      - comments
+    rules:
+      - linters:
+          - revive
+        text: don't use underscores
+      - linters:
+          - revive
+        text: don't use ALL_CAPS
+      - linters:
+          - revive
+        text: avoid meaningless package names
+      - linters:
+          - revive
+        text: stutter
+      - linters:
+          - revive
+        text: unexported-return
+      - linters:
+          - revive
+        text: unused-parameter
+      - linters:
+          - revive
+        text: superfluous-else
+      - linters:
+          - revive
+        text: empty-block
+      - linters:
+          - modernize
+        text: 'unsafefuncs:'
+      - linters:
+          - modernize
+        text: 'stringscut:'
+    paths:
+      - pkg/uroot/test

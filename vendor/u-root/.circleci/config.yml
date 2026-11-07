@@ -1,0 +1,92 @@
+version: 2
+
+templates:
+  golang-template:
+    &golang-template
+    docker:
+      - image: cimg/go:1.21
+    working_directory: /home/circleci/go/src/github.com/u-root/u-root
+    environment:
+      - UROOT_SOURCE: /home/circleci/go/src/github.com/u-root/u-root
+      - CGO_ENABLED: 0
+      - UROOT_QEMU_TIMEOUT_X: 7
+
+  beefy-template:
+    &beefy-template
+    <<: *golang-template
+    resource_class: large
+
+jobs:
+  race:
+    <<: *beefy-template
+    environment:
+      - UROOT_SOURCE: /home/circleci/go/src/github.com/u-root/u-root
+      - CGO_ENABLED: 1
+      - NETCAT_CONNECT_TEST_DISABLE_IPV6: 1
+    steps:
+      - checkout
+      - run:
+          name: Race detector
+          command: go test -race -timeout=15m -p=1 -failfast ./cmds/... ./pkg/...
+
+  compile_cmds:
+    <<: *golang-template
+    steps:
+      - checkout
+      - run:
+          name: build all tools
+          command: |
+            cd cmds
+            go install -a ./...
+            cd ../tools
+            go install -a ./...
+
+  check_licenses:
+    <<: *golang-template
+    steps:
+      - checkout
+      - run:
+          name: Check licenses
+          command: go run tools/checklicenses/checklicenses.go -c tools/checklicenses/config.json
+
+  check_templates:
+    <<: *golang-template
+    steps:
+      - checkout
+      - run:
+          name: Ensure that every template builds for a variety of options.
+          command: |
+            go build .
+            goruncmd="./u-root"
+            $goruncmd minimal
+            $goruncmd core
+            $goruncmd coreboot-app
+            $goruncmd all
+            $goruncmd world
+            $goruncmd all core
+            GOOS=plan9 $goruncmd -defaultsh=/bbin/rush plan9
+
+  # Aggregator job that sends the expected 'build_and_test' status check to GitHub
+  build_and_test:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - run:
+          name: All tests completed
+          command: echo "All required tests passed."
+
+workflows:
+  version: 2
+  full_build_and_test:
+    jobs:
+      - race
+      - compile_cmds
+      - check_templates
+      - check_licenses
+      - build_and_test:
+          requires:
+            - race
+            - compile_cmds
+            - check_templates
+            - check_licenses
+

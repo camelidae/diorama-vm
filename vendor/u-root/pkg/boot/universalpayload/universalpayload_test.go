@@ -1,0 +1,519 @@
+// Copyright 2024 the u-root Authors. All rights reserved
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package universalpayload
+
+import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"unsafe"
+
+	guid "github.com/google/uuid"
+	"github.com/u-root/u-root/pkg/acpi"
+	"github.com/u-root/u-root/pkg/align"
+	"github.com/u-root/u-root/pkg/boot/kexec"
+	"github.com/u-root/u-root/pkg/efivarfs"
+)
+
+func mockKexecMemoryMapFromIOMem() (kexec.MemoryMap, error) {
+	return kexec.MemoryMap{
+		{Range: kexec.Range{Start: 0x1000, Size: 0x400000}, Type: kexec.RangeRAM},
+		{Range: kexec.Range{Start: 100, Size: 50}, Type: kexec.RangeACPI},
+	}, nil
+}
+
+func mockGetRSDP() (*acpi.RSDP, error) {
+	return &acpi.RSDP{}, nil
+}
+
+func mockGetSMBIOSBase() (int64, int64, error) {
+	return 100, 200, nil
+}
+
+// mockEFIVarFS implements efivarfs.EFIVar for testing
+type mockEFIVarFS struct {
+	vars map[efivarfs.VariableDescriptor]struct {
+		attrs efivarfs.VariableAttributes
+		data  []byte
+	}
+}
+
+func (m *mockEFIVarFS) Get(desc efivarfs.VariableDescriptor) (efivarfs.VariableAttributes, []byte, error) {
+	v, ok := m.vars[desc]
+	if !ok {
+		return 0, nil, os.ErrNotExist
+	}
+	return v.attrs, v.data, nil
+}
+
+func (m *mockEFIVarFS) List() ([]efivarfs.VariableDescriptor, error) {
+	var descs []efivarfs.VariableDescriptor
+	for d := range m.vars {
+		descs = append(descs, d)
+	}
+	return descs, nil
+}
+
+func (m *mockEFIVarFS) Remove(desc efivarfs.VariableDescriptor) error {
+	delete(m.vars, desc)
+	return nil
+}
+
+func (m *mockEFIVarFS) Set(desc efivarfs.VariableDescriptor, attrs efivarfs.VariableAttributes, data []byte) error {
+	m.vars[desc] = struct {
+		attrs efivarfs.VariableAttributes
+		data  []byte
+	}{attrs, data}
+	return nil
+}
+
+func mockEFIVars() Option {
+	mockFS := &mockEFIVarFS{
+		vars: make(map[efivarfs.VariableDescriptor]struct {
+			attrs efivarfs.VariableAttributes
+			data  []byte
+		}),
+	}
+
+	guidStr := "8be4df61-93ca-11d2-aa0d-00e098032b8c"
+	g, _ := guid.Parse(guidStr)
+
+	mockFS.Set(efivarfs.VariableDescriptor{Name: "Setup", GUID: g}, 0x07, []byte{0x01, 0x02, 0x03, 0x04})
+	mockFS.Set(efivarfs.VariableDescriptor{Name: "BootOrder", GUID: g}, 0x07, []byte{0x00, 0x00, 0x01, 0x00})
+	mockFS.Set(efivarfs.VariableDescriptor{Name: "OsSecureBootEnforce", GUID: g}, 0x07, []byte{0x01})
+	mockFS.Set(efivarfs.VariableDescriptor{Name: "Timeout", GUID: g}, 0x07, []byte{0x05, 0x00})
+	mockFS.Set(efivarfs.VariableDescriptor{Name: "PlatformLang", GUID: g}, 0x07, []byte{'e', 'n', '-', 'U', 'S', 0x00})
+
+	return WithEFIVarFSCreator(func(path string) (efivarfs.EFIVar, error) {
+		return mockFS, nil
+	})
+}
+
+// Main test for constructing HOB list,
+// to make sure there are no issues with the overall process
+func TestLoadKexecMemWithHOBs(t *testing.T) {
+	emptyDir := t.TempDir()
+	sysfsFbPath := filepath.Join(emptyDir, "fb0")
+	sysfsDrmPath := filepath.Join(emptyDir, "drm")
+	mcfgPath := filepath.Join(emptyDir, "MCFG")
+	pciPath := filepath.Join(emptyDir, "pci")
+
+	// Follow components layout which is defined in utilities.go to place corresponding components
+	// |------------------------| <-- Memory Region top
+	// |     TRAMPOLINE CODE    |
+	// |------------------------| <-- loadAddr + trampolineOffset
+	// |      TEMP STACK        |
+	// |------------------------| <-- loadAddr + tmpStackOffset
+	// |    Device Tree Info    |
+	// |------------------------| <-- loadAddr + fdtDtbOffset
+	// |  BOOTLOADER PARAMETER  |
+	// |  HoBs (Handoff Blocks) |
+	// |------------------------| <-- loadAddr + tmpHobOffset
+	// |       ACPI DATA        |
+	// |------------------------| <-- loadAddr + rsdpTableOffset
+	// |     UPL FIT IMAGE      |
+	// |------------------------| <-- loadAddr which is 2MB aligned
+	// 1 Page size for each component is enough in out positive test case.
+	fdtInfo := &FdtLoad{DataOffset: 0x100, DataSize: 0x5000, EntryStart: 0x1000, Load: 0x1800}
+	imgSize := fdtInfo.DataOffset + fdtInfo.DataSize
+	rsdpOff := (uintptr)(align.UpPage(imgSize))
+	pageSize := os.Getpagesize()
+	hobsOff := rsdpOff + uintptr(pageSize)
+	fdtOff := hobsOff + uintptr(pageSize)
+	stackOff := fdtOff + uintptr(pageSize)
+	trampOff := stackOff + uintptr(pageSize)
+
+	tests := []struct {
+		name            string
+		opts            []Option
+		fdtLoad         *FdtLoad
+		data            []byte
+		mem             kexec.Memory
+		wantErr         error
+		wantAddr        uintptr
+		wantMemSegments []kexec.Range
+	}{
+		{
+			name: "Valid case to relocate FIT image without EFI vars",
+			opts: []Option{
+				WithSMBIOSBase(mockGetSMBIOSBase),
+				WithAcpiRsdp(mockGetRSDP),
+				WithKexecMemoryMapFromIOMem(mockKexecMemoryMapFromIOMem),
+				WithEFIVarFSCreator(func(path string) (efivarfs.EFIVar, error) {
+					return nil, os.ErrNotExist
+				}),
+				WithSysfsPaths("", sysfsFbPath, sysfsDrmPath, "", mcfgPath, pciPath),
+			},
+			fdtLoad: fdtInfo,
+			data: mockWritePeFileBinary(0x100, 0x5100, 0x1000, []*MockSection{
+				{".reloc", mockRelocData(0x1000, IMAGE_REL_BASED_DIR64, 0x200)},
+			}),
+			mem: kexec.Memory{
+				Phys: kexec.MemoryMap{
+					{Range: kexec.Range{Start: 0x1000, Size: 0x500000}, Type: kexec.RangeRAM},
+					{Range: kexec.Range{Start: 100, Size: 50}, Type: kexec.RangeACPI},
+				},
+			},
+			wantErr:  nil,
+			wantAddr: 0x200000 + 0xa000,
+			wantMemSegments: []kexec.Range{
+				{Start: 0x200000, Size: (uint)(imgSize)}, // PeFileBinary
+				{Start: 0x200000 + rsdpOff, Size: 0},     // ACPI Data
+				{Start: 0x200000 + hobsOff, Size: 0},     // HOBs for bootloader
+				{Start: 0x200000 + fdtOff, Size: 0},      // Device Tree Info
+				{Start: 0x200000 + stackOff, Size: 0},    // boot env (tmp stack)
+				{Start: 0x200000 + trampOff, Size: 0},    // boot env (trampoline)
+			},
+		},
+		{
+			name: "Valid case to relocate FIT image with mocked EFI vars",
+			opts: []Option{
+				WithSMBIOSBase(mockGetSMBIOSBase),
+				WithAcpiRsdp(mockGetRSDP),
+				WithKexecMemoryMapFromIOMem(mockKexecMemoryMapFromIOMem),
+				mockEFIVars(),
+				WithSysfsPaths("", sysfsFbPath, sysfsDrmPath, "", mcfgPath, pciPath),
+			},
+			fdtLoad: fdtInfo,
+			data: mockWritePeFileBinary(0x100, 0x5100, 0x1000, []*MockSection{
+				{".reloc", mockRelocData(0x1000, IMAGE_REL_BASED_DIR64, 0x200)},
+			}),
+			mem: kexec.Memory{
+				Phys: kexec.MemoryMap{
+					{Range: kexec.Range{Start: 0x1000, Size: 0x500000}, Type: kexec.RangeRAM},
+					{Range: kexec.Range{Start: 100, Size: 50}, Type: kexec.RangeACPI},
+				},
+			},
+			wantErr:  nil,
+			wantAddr: 0x200000 + 0xa000,
+			wantMemSegments: []kexec.Range{
+				{Start: 0x200000, Size: (uint)(imgSize)}, // PeFileBinary
+				{Start: 0x200000 + rsdpOff, Size: 0},     // ACPI Data
+				{Start: 0x200000 + hobsOff, Size: 0},     // HOBs for bootloader
+				{Start: 0x200000 + fdtOff, Size: 0},      // Device Tree Info
+				{Start: 0x200000 + stackOff, Size: 0},    // boot env (tmp stack)
+				{Start: 0x200000 + trampOff, Size: 0},    // boot env (trampoline)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := New(tt.opts...)
+			tempFile := u.mockCPUTempInfoFile(t, `
+processor	: 0
+vendor_id	: GenuineIntel
+cpu family	: 6
+model		: 142
+model name	: Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz
+address sizes	: 39 bits physical, 48 bits virtual
+`)
+			defer os.Remove(tempFile)
+
+			rsdpBase, rsdpData, _ := u.archGetAcpiRsdpData()
+			wantMemSegments := tt.wantMemSegments
+			wantAddr := tt.wantAddr
+			if rsdpBase != 0 || len(rsdpData) == 0 {
+				wantMemSegments = []kexec.Range{
+					{Start: 0x200000, Size: (uint)(imgSize)}, // PeFileBinary
+					{Start: 0x200000 + rsdpOff, Size: 0},     // HOBs for bootloader
+					{Start: 0x200000 + hobsOff, Size: 0},     // Device Tree Info
+					{Start: 0x200000 + fdtOff, Size: 0},      // boot env (tmp stack)
+					{Start: 0x200000 + stackOff, Size: 0},    // boot env (trampoline)
+				}
+				wantAddr = 0x200000 + stackOff
+			}
+
+			addr, err := u.loadKexecMemWithHOBs(tt.fdtLoad, tt.data, &tt.mem)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("loadKexecMemWithHOBs() error = %v, want %v", err, tt.wantErr)
+			}
+			t.Logf("\nmem Segments:  %v\nwant Segments: %v", tt.mem.Segments.Phys(), wantMemSegments)
+			if wantAddr != addr {
+				t.Fatalf("Unexpected target addr: %x, want: %x", addr, wantAddr)
+			}
+			if wantMemSegments != nil {
+				if len(wantMemSegments) != len(tt.mem.Segments.Phys()) {
+					t.Fatalf("Unexpected mem segment size: %x, want: %x", len(tt.mem.Segments.Phys()), len(wantMemSegments))
+				}
+				for i, r := range wantMemSegments {
+					actualRange := tt.mem.Segments.Phys()[i]
+					if r.Start != actualRange.Start {
+						t.Fatalf("Unexpected mem segment Start: %x, want: %x", actualRange.Start, r.Start)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAppendMemMapHOB(t *testing.T) {
+	u := New(WithKexecMemoryMapFromIOMem(mockKexecMemoryMapFromIOMem))
+
+	var memMap kexec.MemoryMap
+	if ioMem, err := u.kexecMemoryMapFromIOMem(); err != nil {
+		t.Fatal(err)
+	} else {
+		memMap = ioMem
+	}
+
+	hobBuf := &bytes.Buffer{}
+	var hobLen uint64
+	if err := u.appendMemMapHOB(hobBuf, &hobLen, memMap); err != nil {
+		t.Fatal(err)
+	}
+
+	var deserializedHOB EFIMemoryMapHOB
+	for hobBuf.Len() > 0 {
+		var hob EFIHOBResourceDescriptor
+		err := binary.Read(hobBuf, binary.LittleEndian, &hob)
+		if err != nil {
+			t.Fatalf("Unexpected error: %+v", err)
+		}
+		deserializedHOB = append(deserializedHOB, hob)
+	}
+
+	// We will pass all non system memory regions info to UPL, update to the actual
+	// memory region numbers provided in test case.
+	if len(deserializedHOB) != 1 {
+		t.Fatalf("Unexpected hob size = %d, want = %d", len(deserializedHOB), 1)
+	}
+}
+
+func TestAppendSerialPortHOB(t *testing.T) {
+	u := New()
+	hobBuf := &bytes.Buffer{}
+	var hobLen uint64
+	if err := u.appendSerialPortHOB(hobBuf, &hobLen); err != nil {
+		t.Fatal(err)
+	}
+
+	var serialPortInfo UniversalPayloadSerialPortInfo
+	var efiHOBGUID EFIHOBGUIDType
+	if err := binary.Read(hobBuf, binary.LittleEndian, &efiHOBGUID); err != nil {
+		t.Fatalf("Unexpected error: %+v", err)
+	}
+	if err := binary.Read(hobBuf, binary.LittleEndian, &serialPortInfo); err != nil {
+		t.Fatalf("Unexpected error: %+v", err)
+	}
+	if efiHOBGUID.Name.String() != UniversalPayloadSerialPortInfoGUID {
+		t.Fatalf("Unexpected efiHOBGuid = %v, want = %v",
+			efiHOBGUID.Name.String(), UniversalPayloadSerialPortInfoGUID)
+	}
+}
+
+func TestAppendUniversalPayloadBase(t *testing.T) {
+	u := New()
+	hobBuf := &bytes.Buffer{}
+	var hobLen uint64
+	const fdtLoad = uint64(0x700000)
+	if err := u.appendUniversalPayloadBase(hobBuf, &hobLen, fdtLoad); err != nil {
+		t.Fatal(err)
+	}
+	var uplBase UniversalPayloadBase
+	var uplBaseGUIDHOB EFIHOBGUIDType
+	if err := binary.Read(hobBuf, binary.LittleEndian, &uplBaseGUIDHOB); err != nil {
+		t.Fatalf("Unexpected error: %+v", err)
+	}
+	if err := binary.Read(hobBuf, binary.LittleEndian, &uplBase); err != nil {
+		t.Fatalf("Unexpected error: %+v", err)
+	}
+	if hobBuf.Len() > 0 {
+		t.Fatalf("Unexpected hobBuf size after deserialization: %v, want = 0", hobBuf.Len())
+	}
+	if uplBaseGUIDHOB.Name.String() != UniversalPayloadBaseGUID {
+		t.Fatalf("Unexpected uplBaseGUIDHOB = %v, want = %v",
+			uplBaseGUIDHOB.Name.String(), UniversalPayloadBaseGUID)
+	}
+	if uplBase.Entry != EFIPhysicalAddress(fdtLoad) {
+		t.Fatalf("Unexpected UniversalPayloadBase.Entry: %v, want = %v", uplBase.Entry, fdtLoad)
+	}
+}
+
+func TestConstructHOBList(t *testing.T) {
+	const lenOfEFITable = uint64(unsafe.Sizeof(EFIHOBHandoffInfoTable{}))
+	u := New()
+
+	for _, tt := range []struct {
+		// mock data
+		name   string
+		dst    *bytes.Buffer
+		src    *bytes.Buffer
+		hobLen uint64
+
+		// expected data
+		wantHOBLen uint64
+		efiTable   EFIHOBHandoffInfoTable
+		endHeader  EFIHOBGenericHeader
+		wantErr    error
+	}{
+		{
+			name:   "CASE 1: success",
+			dst:    &bytes.Buffer{},
+			src:    bytes.NewBuffer([]byte("12345678")),
+			hobLen: uint64(8),
+
+			wantHOBLen: uint64(8 + unsafe.Sizeof(EFIHOBGenericHeader{})),
+			efiTable: EFIHOBHandoffInfoTable{
+				Header: EFIHOBGenericHeader{
+					HOBType:   EFIHOBTypeHandoff,
+					HOBLength: EFIHOBLength(unsafe.Sizeof(EFIHOBHandoffInfoTable{})),
+				},
+				Version:          EFIHOBHandoffInfoVersion,
+				BootMode:         EFIHOBHandoffInfoBootMode,
+				MemoryTop:        EFIHOBHandoffInfoEFIMemoryTop,
+				MemoryBottom:     EFIHOBHandoffInfoEFIMemoryBottom,
+				FreeMemoryTop:    EFIHOBHandoffInfoFreeEFIMemoryTop,
+				FreeMemoryBottom: EFIHOBHandoffInfoFreeMemoryBottom + EFIPhysicalAddress(8+8+lenOfEFITable),
+				EndOfHOBList:     EFIHOBHandoffInfoFreeMemoryBottom + EFIPhysicalAddress(8+lenOfEFITable),
+			},
+			endHeader: EFIHOBGenericHeader{
+				HOBType:   EFIHOBTypeEndOfHOBList,
+				HOBLength: EFIHOBLength(unsafe.Sizeof(EFIHOBGenericHeader{})),
+				Reserved:  0,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := u.constructHOBList(tt.dst, tt.src, &tt.hobLen)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("constructHOBList() error = %v, want %v", err, tt.wantErr)
+			}
+			if err != nil { // already checked in expectedErr
+				return
+			}
+
+			// hobLen should be updated as expected after construction
+			if tt.hobLen != tt.wantHOBLen {
+				t.Fatalf("Unexpected hobLen = %v, want = %v", tt.hobLen, tt.wantHOBLen)
+			}
+
+			// deserialize hobList object from bytes
+			var efiTable EFIHOBHandoffInfoTable
+			if err := binary.Read(tt.dst, binary.LittleEndian, &efiTable); err != nil {
+				t.Fatalf("Unexpected error: %+v", err)
+			}
+			if efiTable != tt.efiTable {
+				t.Fatalf("Unexpected efiTable: %v, want = %v", efiTable, tt.efiTable)
+			}
+
+			// src data
+			src := make([]byte, len(tt.src.Bytes()))
+			n, rerr := tt.dst.Read(src)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if n != len(tt.src.Bytes()) {
+				t.Fatalf("Unexpected src data len: %v, want = %v", n, len(tt.src.Bytes()))
+			}
+			if !bytes.Equal(src, tt.src.Bytes()) {
+				t.Fatalf("Unexpected src data: %v, want = %v", src, tt.src.Bytes())
+			}
+
+			// end header
+			var endHeader EFIHOBGenericHeader
+			if err := binary.Read(tt.dst, binary.LittleEndian, &endHeader); err != nil {
+				t.Fatalf("Unexpected error: %+v", err)
+			}
+			if endHeader != tt.endHeader {
+				t.Fatalf("Unexpected efiTable: %v, want = %v", endHeader, tt.endHeader)
+			}
+		})
+	}
+}
+
+func TestAppendSmbiosTableHOB(t *testing.T) {
+	smbiosBase, _, _ := mockGetSMBIOSBase()
+	tests := []struct {
+		name                   string
+		expectedErr            error
+		expectedHOBLen         uint64
+		expectedEFIHOBGUID     *EFIHOBGUIDType
+		expectedUplSmbiosTable *UniversalPayloadSmbiosTable
+	}{
+		{
+			name:           "CASE 1: success",
+			expectedErr:    nil,
+			expectedHOBLen: uint64(unsafe.Sizeof(EFIHOBGUIDType{}) + unsafe.Sizeof(UniversalPayloadSmbiosTable{})),
+			expectedEFIHOBGUID: &EFIHOBGUIDType{
+				Header: EFIHOBGenericHeader{
+					HOBType:   EFIHOBTypeGUIDExtension,
+					HOBLength: EFIHOBLength(unsafe.Sizeof(EFIHOBGUIDType{}) + guidToLength[UniversalPayloadSmbiosTableGUID]),
+				},
+				Name: guid.MustParse(UniversalPayloadSmbiosTableGUID),
+			},
+			expectedUplSmbiosTable: &UniversalPayloadSmbiosTable{
+				Header: UniversalPayloadGenericHeader{
+					Revision: UniversalPayloadSmbiosTableRevision,
+					Length:   uint16(unsafe.Sizeof(UniversalPayloadSmbiosTable{})),
+				},
+				SmBiosEntryPoint: EFIPhysicalAddress(smbiosBase),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := New(WithSMBIOSBase(mockGetSMBIOSBase))
+
+			hobBuf := &bytes.Buffer{}
+			var hobLen uint64
+			err := u.appendSmbiosTableHOB(hobBuf, &hobLen)
+
+			if !errors.Is(err, tt.expectedErr) {
+				t.Fatalf("appendSmbiosTableHOB() error = %v, want %v", err, tt.expectedErr)
+			}
+			if err != nil { // already checked in expectedErr
+				return
+			}
+
+			// hobLen should be updated as expected after construction
+			if tt.expectedHOBLen != hobLen {
+				t.Fatalf("Unexpected hobLen = %v, want = %v", hobLen, tt.expectedHOBLen)
+			}
+
+			// deserialize EFIHOBGUID object from bytes
+			var efiHOBGUID EFIHOBGUIDType
+			if err := binary.Read(hobBuf, binary.LittleEndian, &efiHOBGUID); err != nil {
+				t.Fatalf("Unexpected error: %+v", err)
+			}
+			if *tt.expectedEFIHOBGUID != efiHOBGUID {
+				t.Fatalf("Unexpected efiHOBCPU = %v, want = %v", efiHOBGUID, *tt.expectedEFIHOBGUID)
+			}
+
+			// deserialize smbiosTable object from bytes
+			var smbiosTable UniversalPayloadSmbiosTable
+			if err := binary.Read(hobBuf, binary.LittleEndian, &smbiosTable); err != nil {
+				t.Fatalf("Unexpected error: %+v", err)
+			}
+			if *tt.expectedUplSmbiosTable != smbiosTable {
+				t.Fatalf("Unexpected smbiosTable = %v, want = %v", smbiosTable, *tt.expectedUplSmbiosTable)
+			}
+		})
+	}
+}
+
+func TestComponentsSizeReset(t *testing.T) {
+	u := New()
+	// Artificially increase componentsSize
+	u.componentsSize = uint(sizeForComponents) - 1
+
+	// Check that checkComponentsSize fails if we add more than allowed
+	err := u.checkComponentsSize(2)
+	if err == nil {
+		t.Error("Expected error from checkComponentsSize, got nil")
+	}
+
+	// Now "mock" what Load does by resetting componentsSize
+	u.componentsSize = 0
+	err = u.checkComponentsSize(1)
+	if err != nil {
+		t.Errorf("Unexpected error after reset: %v", err)
+	}
+}

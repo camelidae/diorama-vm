@@ -1,0 +1,64 @@
+---
+name: TinyGo regression test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/tinygo-org/tinygo-dev:sha-394884617ebb957592024a240feb752ffef19260
+    steps:
+      - name: Install actions dependencies into tinygo container (Debain)
+        run: |
+          apt-get update
+          apt-get install -y nodejs
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.26.x'
+      - name: Run regression builder core
+        run: |
+          # the docker image adds tinygo to the path
+          TINYGO=$(which tinygo)
+          TINYGOVER=$($TINYGO version | awk {'print $3'})
+          GOVER=$(go version | awk {'print $3'} )
+
+          # fatal: detected dubious ownership in repository at '/__w/u-root/u-root'
+          # To add an exception for this directory, call:
+          git config --global --add safe.directory /__w/u-root/u-root          
+
+          # $GITHUB_STEP_SUMMARY upload aborted, supports content up to a size 
+          # of 1024k, got 1309k. For more information see:
+
+          mkdir -p $PWD/out
+          go run tools/tinygo-buildstatus/main.go \
+              tools/tinygo-buildstatus/statusquo.go \
+              -tinygo $TINYGO \
+              -commit-tinygo $TINYGOVER \
+              -commit-uroot $(git rev-parse HEAD) \
+              -version-go $GOVER \
+              -cmdout $PWD/out \
+              cmds/core/* > $GITHUB_STEP_SUMMARY
+      
+      - name: Run regression builder exp
+        run: |
+          # the docker image adds tinygo to the path
+          TINYGO=$(which tinygo)
+          TINYGOVER=$($TINYGO version | awk {'print $3'})
+          GOVER=$(go version | awk {'print $3'} )
+
+          go run tools/tinygo-buildstatus/main.go \
+              tools/tinygo-buildstatus/statusquo.go \
+              -tinygo $TINYGO \
+              -commit-tinygo $TINYGOVER \
+              -commit-uroot $(git rev-parse HEAD) \
+              -version-go $GOVER \
+              cmds/exp/* > $GITHUB_STEP_SUMMARY

@@ -1,0 +1,10 @@
+# Build artifacts (keep directory via .gitkeep)
+artifacts/*
+!artifacts/.gitkeep
+
+# Swift
+microvm/.build/
+
+# Local scratch
+*.sha256
+.DS_Store

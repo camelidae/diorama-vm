@@ -1,0 +1,121 @@
+// Copyright 2024 the u-root Authors. All rights reserved
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+//go:build amd64 && tinygo
+
+package universalpayload
+
+/*
+// "textflag.h" is provided by the gc compiler, tinygo does not have this
+#include "trampoline_tinygo_amd64.h"
+*/
+import "C"
+
+import (
+	"bufio"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"os"
+	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
+	"unsafe"
+)
+
+// Get Physical Address size from sysfs node /proc/cpuinfo.
+// Both Physical and Virtual Address size will be prompted as format:
+// "address sizes	: 39 bits physical, 48 bits virtual"
+// Use regular expression to fetch the integer of Physical Address
+// size before "bits physical" keyword
+func (u *UPL) getPhysicalAddressSizes() (uint8, error) {
+	file, err := os.Open(u.sysfsCPUInfoPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open %s: %w", u.sysfsCPUInfoPath, err)
+	}
+	defer file.Close()
+
+	// Regular expression to match the address size line
+	re := regexp.MustCompile(`address sizes\s*:\s*(\d+)\s+bits physical,\s*(\d+)\s+bits virtual`)
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if match := re.FindStringSubmatch(line); match != nil {
+			// Convert the physical bits size to integer
+			physicalBits, err := strconv.ParseUint(match[1], 10, 8)
+			if err != nil {
+				return 0, errors.Join(ErrCPUAddressConvert, err)
+			}
+			return uint8(physicalBits), nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("%w: file: %s, err: %w", ErrCPUAddressRead, u.sysfsCPUInfoPath, err)
+	}
+
+	return 0, ErrCPUAddressNotFound
+}
+
+// Construct trampoline code before jump to entry point of FIT image.
+// Due to lack of support to set value of General Purpose Registers in kexec,
+// bootloader parameter needs to be prepared in trampoline code.
+// Also stack is prepared in trampoline code snippet to ensure no data leak.
+func (u *UPL) constructTrampoline(buf []uint8, addr uint64, entry uint64) []uint8 {
+	ptrToSlice := func(ptr uintptr, size int) []byte {
+		var data []byte
+
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		sh.Data = ptr
+		sh.Len = size
+		sh.Cap = size
+
+		return data
+	}
+
+	appendUint64 := func(slice []uint8, value uint64) []uint8 {
+		tmpBytes := make([]uint8, 8)
+		binary.LittleEndian.PutUint64(tmpBytes, value)
+		return append(slice, tmpBytes...)
+	}
+
+	trampBegin := C.addrOfStartU()
+
+	// Please keep 'size' parameter of 'ptrToSlice" align with implementation of
+	// trampoline_startU in trampoline_tinygo_amd64.h
+	tramp := ptrToSlice(trampBegin, 32)
+
+	buf = append(buf, tramp...)
+
+	buf = appendUint64(buf, addr+u.trampolineOffset)
+	buf = appendUint64(buf, addr+u.fdtDtbOffset)
+	buf = appendUint64(buf, entry)
+
+	return buf
+}
+
+// Get the base address and data from RDSP table
+func (u *UPL) archGetAcpiRsdpData() (uint64, []byte, error) {
+	rsdp, _ := u.getAcpiRsdp()
+	rsdpLen := rsdp.Len()
+
+	if rsdpLen > uint32(u.pageSize) {
+		return 0, nil, ErrDTRsdpLenOverBound
+	}
+
+	return 0, rsdp.AllData(), nil
+}
+
+func (u *UPL) appendAddonMemMap(_ *EFIMemoryMapHOB) uint64 {
+	return 0
+}
+
+func (u *UPL) isMemReserved(memType string) bool {
+	if strings.HasPrefix(memType, "PCI MMCONFIG") || strings.HasPrefix(memType, "PCI ECAM") {
+		return true
+	}
+	return false
+}

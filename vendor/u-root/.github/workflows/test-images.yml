@@ -1,0 +1,77 @@
+name: Publish test images
+
+on:
+  push:
+    paths:
+      - '.circleci/images/kernel-arm/*'
+      - '.circleci/images/kernel-arm64/*'
+      - '.circleci/images/kernel-amd64/*'
+      - '.circleci/images/multiboot-test-kernel-amd64/*'
+      - '.circleci/images/uefipayload-amd64/*'
+      - '.circleci/images/ovmf-amd64/*'
+      - '.circleci/images/ovmf-arm64/*'
+      - '.circleci/images/upl-fit-amd64/*'
+      - '.circleci/images/upl-fit-arm64/*'
+      - '.github/workflows/test-images.yml'
+    branches: ['main']
+  pull_request:
+    paths:
+      - '.circleci/images/kernel-arm/*'
+      - '.circleci/images/kernel-arm64/*'
+      - '.circleci/images/kernel-amd64/*'
+      - '.circleci/images/multiboot-test-kernel-amd64/*'
+      - '.circleci/images/uefipayload-amd64/*'
+      - '.circleci/images/ovmf-amd64/*'
+      - '.circleci/images/ovmf-arm64/*'
+      - '.circleci/images/upl-fit-amd64/*'
+      - '.circleci/images/upl-fit-arm64/*'
+      - '.github/workflows/test-images.yml'
+    branches: ['main']
+
+# Cancel running workflows on new push to a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        image: ['kernel-amd64', 'kernel-arm', 'kernel-arm64', 'uefipayload-amd64', 'multiboot-test-kernel-amd64', 'ovmf-amd64', 'ovmf-arm64', 'upl-fit-amd64', 'upl-fit-arm64']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/test-${{ matrix.image }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ./.circleci/images/${{ matrix.image }}
+          # Build for PRs, only push for main.
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
