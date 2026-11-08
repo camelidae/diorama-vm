@@ -34,10 +34,13 @@ github.com/u-root/u-root/cmds/core/tail
 github.com/u-root/u-root/cmds/core/head
 github.com/u-root/u-root/cmds/core/grep
 github.com/u-root/u-root/cmds/core/timeout
-# containerd in bb (phase 4): shares most deps with the shim below.
+# containerd in bb (phase 4): shares most deps with ctr below.
 github.com/containerd/containerd/v2/cmd/containerd
 github.com/containerd/containerd/v2/cmd/ctr
-# shim wrapper: directory basename is the exact exec'd name.
-diorama-vm.cmds/containerd-shim-runsc-v1
+# The runsc shim is NOT built into bb: containerd's shim entrypoint loads every
+# plugin registered in the process (registry.Graph with a no-op filter), and a
+# combined binary leaks the daemon's plugin set into the shim. Daemon-only
+# plugins abort the shim on init, so the shim is built as its own binary
+# instead (see scripts/build-initramfs.sh).
 # vsock → containerd socket relay (phase 5).
 diorama-vm.cmds/diorama-vm-vsockd

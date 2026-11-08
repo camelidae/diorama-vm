@@ -51,9 +51,19 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   UROOT_CMDS+=("$line")
 done < "${DIORAMA_VM_ROOT}/guest/u-root-cmds.txt"
 
+# The runsc shim is built standalone rather than into bb. containerd's shim
+# entrypoint loads every plugin registered in its process (registry.Graph with
+# a no-op disable filter), so a combined binary leaks the daemon's plugin set
+# into the shim; daemon-only plugins abort it on init. Built here under the
+# exact name containerd execs.
+SHIM="${TOOLS}/containerd-shim-runsc-v1"
+(cd "${DIORAMA_VM_ROOT}/cmds" && \
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o "${SHIM}" ./containerd-shim-runsc-v1)
+
 cd "${UROOT}"
 FILES_ARGS=(
   -files "${RUNSC}:bin/runsc"
+  -files "${SHIM}:bin/containerd-shim-runsc-v1"
   -files "${DIORAMA_VM_ROOT}/guest/boot.sh:etc/boot.sh"
   -files "${DIORAMA_VM_ROOT}/guest/containerd-config.toml:etc/containerd/config.toml"
   -files "${DIORAMA_VM_ROOT}/guest/runsc-options.toml:etc/containerd/runsc/config.toml"
