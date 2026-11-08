@@ -69,4 +69,19 @@ fi
 
 cp -f "${PODMAN_OUT}/Image" "${OUT}"
 cp -f "${PODMAN_OUT}/kernel.config" "${ARTIFACTS}/kernel.config"
+
+# Kconfig silently drops requested options when a dependency is unmet. A guest
+# kernel without these boots, then fails only when a workload needs the
+# feature, so fail the build instead. See kernel/config-fragment for why
+# MEMBARRIER is required (Wasmtime under gVisor on aarch64).
+missing=""
+for option in CONFIG_MEMBARRIER CONFIG_CGROUPS CONFIG_SECCOMP_FILTER; do
+  grep -qx "${option}=y" "${ARTIFACTS}/kernel.config" || missing="${missing} ${option}"
+done
+if [[ -n "${missing}" ]]; then
+  echo "guest kernel is missing required options:${missing}" >&2
+  echo "(requested in kernel/config-fragment; check the kconfig WARNING above)" >&2
+  exit 1
+fi
+
 echo "kernel Image -> ${OUT} ($(du -h "${OUT}" | cut -f1)); config -> ${ARTIFACTS}/kernel.config"

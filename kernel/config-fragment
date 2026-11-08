@@ -11,3 +11,10 @@ CONFIG_IPC_NS=y
 CONFIG_UTS_NS=y
 # runs with --ignore-cgroups, but runsc probes for cgroupfs
 CONFIG_CGROUPS=y
+# gVisor has no MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE in its kernel. It
+# answers the SYNC_CORE request with EINVAL and relies on the guest kernel
+# supporting MEMBARRIER_CMD_GLOBAL instead (pkg/sentry/hostmm). Without this,
+# every membarrier(2) from a sandbox fails and aarch64 JIT workloads break:
+# Wasmtime's icache-coherence flush aborts with "Failed pipeline flush:
+# Invalid argument", so WASI 0.3 components cannot instantiate under runsc.
+CONFIG_MEMBARRIER=y
