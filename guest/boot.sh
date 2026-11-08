@@ -13,7 +13,7 @@ for c in pids memory cpu io cpuset; do
   echo "+$c" > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || echo "cgroup enable $c failed"
 done
 # vsock → containerd socket relay for Mac-side control (phase 5).
-dios-vsockd &
+diorama-vm-vsockd &
 containerd --config /etc/containerd/config.toml > /tmp/containerd.log 2>&1 &
 n=0
 while [ ! -S /run/containerd/containerd.sock ]; do

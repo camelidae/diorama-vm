@@ -8,7 +8,7 @@
 #
 # Current wrappers:
 # - containerd-shim-runsc-v1/ → gvisor.dev/gvisor/shim/v1/cli.Main()
-# - dios-vsockd/ → guest vsock→containerd socket relay (phase 5)
+# - diorama-vm-vsockd/ → guest vsock→containerd socket relay (phase 5)
 #
 # Host-side tools (built for darwin, never shipped in the initramfs):
 # - hostctr/ → gRPC test client driving the guest daemon over

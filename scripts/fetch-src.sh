@@ -4,12 +4,12 @@
 # No `go work replace` version overrides: the otelgrpc skew is fixed by the
 # containerd source patch instead (see patches/containerd/0001-otelgrpc.patch).
 set -euo pipefail
-DIOS_ROOT="$(bash "$(dirname "$0")/dios-root.sh")"
-ARTIFACTS="${DIOS_ROOT}/artifacts"
+DIORAMA_VM_ROOT="$(bash "$(dirname "$0")/diorama-vm-root.sh")"
+ARTIFACTS="${DIORAMA_VM_ROOT}/artifacts"
 SRC="${ARTIFACTS}/.src"
 
 # shellcheck disable=SC1091
-source "${DIOS_ROOT}/third_party/pins"
+source "${DIORAMA_VM_ROOT}/third_party/pins"
 
 mkdir -p "${SRC}"
 
@@ -41,7 +41,7 @@ clone_or_update "${GVISOR_REPO}" "${GVISOR_PIN}" "${SRC}/gvisor" "${GVISOR_BRANC
 clone_or_update "${CONTAINERD_REPO}" "${CONTAINERD_PIN}" "${SRC}/containerd" "${CONTAINERD_BRANCH:-}"
 
 # Apply patches (idempotent: skip if already applied).
-for p in "${DIOS_ROOT}"/patches/containerd/*.patch; do
+for p in "${DIORAMA_VM_ROOT}"/patches/containerd/*.patch; do
   if git -C "${SRC}/containerd" apply --reverse --check "${p}" >/dev/null 2>&1; then
     echo "patch already applied: ${p}"
   else
@@ -49,7 +49,7 @@ for p in "${DIOS_ROOT}"/patches/containerd/*.patch; do
     echo "applied: ${p}"
   fi
 done
-for p in "${DIOS_ROOT}"/patches/gvisor/*.patch; do
+for p in "${DIORAMA_VM_ROOT}"/patches/gvisor/*.patch; do
   if git -C "${SRC}/gvisor" apply --reverse --check "${p}" >/dev/null 2>&1; then
     echo "patch already applied: ${p}"
   else
@@ -62,8 +62,8 @@ cat > "${SRC}/go.work" <<EOF
 go 1.27.3
 
 use (
-	${DIOS_ROOT}/vendor/u-root
-	${DIOS_ROOT}/cmds
+	${DIORAMA_VM_ROOT}/vendor/u-root
+	${DIORAMA_VM_ROOT}/cmds
 	${SRC}/gvisor
 	${SRC}/containerd
 )

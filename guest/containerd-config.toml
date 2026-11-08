@@ -1,4 +1,4 @@
-# containerd config for the dios guest (phase 4: ctr pull/run via the
+# containerd config for the diorama-vm guest (phase 4: ctr pull/run via the
 # runsc shim; CRI pod runtimes come later with container networking).
 version = 3
 

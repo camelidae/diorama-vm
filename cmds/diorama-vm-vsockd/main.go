@@ -1,9 +1,10 @@
-// Binary dios-vsockd relays guest vsock port 1024 to containerd's unix
+// Binary diorama-vm-vsockd relays guest vsock port 1024 to containerd's unix
 // socket, giving the Mac host control without entering the VM.
 //
 // Guest:  vsock listen CID_ANY:1024 → dial /run/containerd/containerd.sock
 // Host:   VZVirtioSocketDeviceConfiguration bridges artifacts/run/containerd.sock
-//         to vsock port 1024 (see microvm/main.swift).
+//
+//	to vsock port 1024 (see microvm/main.swift).
 //
 // Deliberately stdlib + x/sys/unix only (no third-party imports): every
 // u-root command already links x/sys, so this adds no new dependency edge to
@@ -29,11 +30,11 @@ const (
 // vsockConn is a net.Conn over an already-accepted AF_VSOCK fd.
 type vsockConn struct{ fd int }
 
-func (c *vsockConn) Read(b []byte) (int, error)   { return unix.Read(c.fd, b) }
-func (c *vsockConn) Write(b []byte) (int, error)  { return unix.Write(c.fd, b) }
-func (c *vsockConn) Close() error                 { return unix.Close(c.fd) }
-func (c *vsockConn) LocalAddr() net.Addr          { return vsockAddr("local") }
-func (c *vsockConn) RemoteAddr() net.Addr         { return vsockAddr("remote") }
+func (c *vsockConn) Read(b []byte) (int, error)       { return unix.Read(c.fd, b) }
+func (c *vsockConn) Write(b []byte) (int, error)      { return unix.Write(c.fd, b) }
+func (c *vsockConn) Close() error                     { return unix.Close(c.fd) }
+func (c *vsockConn) LocalAddr() net.Addr              { return vsockAddr("local") }
+func (c *vsockConn) RemoteAddr() net.Addr             { return vsockAddr("remote") }
 func (c *vsockConn) SetDeadline(time.Time) error      { return nil }
 func (c *vsockConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *vsockConn) SetWriteDeadline(time.Time) error { return nil }
@@ -54,7 +55,7 @@ func main() {
 	if err := unix.Listen(fd, 16); err != nil {
 		log.Fatalf("vsock listen: %v", err)
 	}
-	log.Printf("dios-vsockd: relaying vsock :%d -> %s", vsockPort, containerdSock)
+	log.Printf("diorama-vm-vsockd: relaying vsock :%d -> %s", vsockPort, containerdSock)
 	for {
 		nfd, _, err := unix.Accept(fd)
 		if err != nil {

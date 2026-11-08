@@ -1,6 +1,4 @@
-# dios
-
-A micro-VM w/ guest userland
+# diorama-vm
 
 **u-root** initramfs with **gVisor `runsc`** as the OCI runtime. A small **Swift** program on macOS uses **Virtualization.framework** to boot the VM. Every runtime blob lives under [`artifacts/`](artifacts/) in this repository (nothing under `$HOME`).
 
@@ -50,7 +48,7 @@ make run            # rebuild whatever is stale, then start VM
 
 ### Paths
 
-Scripts resolve the repo via [`scripts/dios-root.sh`](scripts/dios-root.sh) or **`DIOS_ROOT`**. The Swift launcher uses the same rules: `DIOS_ROOT`, then walk parents from the current working directory until `guest/boot.sh` exists.
+Scripts resolve the repo via [`scripts/diorama-vm-root.sh`](scripts/diorama-vm-root.sh) or **`DIORAMA_VM_ROOT`**. The Swift launcher uses the same rules: `DIORAMA_VM_ROOT`, then walk parents from the current working directory until `guest/boot.sh` exists.
 
 ## Make targets
 
@@ -85,22 +83,22 @@ For debugging, add to `boot.sh`: `--debug --debug-log=/tmp/runsc/ --strace`.
 
 ## Kernel build (Podman)
 
-[`scripts/build-kernel.sh`](scripts/build-kernel.sh) builds the toolchain-only [`kernel/Dockerfile`](kernel/Dockerfile) and runs [`kernel/build-in-container.sh`](kernel/build-in-container.sh) with the Linux source + objects persisted in the named volume `${DIOS_KERNEL_VOLUME:-dios-linux-src}`, so config tweaks recompile incrementally. The container starts from `make ARCH=arm64 tinyconfig`, merges [`kernel/config-go-arm64.txt`](kernel/config-go-arm64.txt), [`kernel/config-vz-arm64.txt`](kernel/config-vz-arm64.txt), and [`kernel/config-fragment`](kernel/config-fragment), runs `olddefconfig`, then builds an **uncompressed** `arch/arm64/boot/Image` copied to `artifacts/Image` with the final `.config` saved as `artifacts/kernel.config`.
+[`scripts/build-kernel.sh`](scripts/build-kernel.sh) builds the toolchain-only [`kernel/Dockerfile`](kernel/Dockerfile) and runs [`kernel/build-in-container.sh`](kernel/build-in-container.sh) with the Linux source + objects persisted in the named volume `${DIORAMA_VM_KERNEL_VOLUME:-diorama-vm-linux-src}`, so config tweaks recompile incrementally. The container starts from `make ARCH=arm64 tinyconfig`, merges [`kernel/config-go-arm64.txt`](kernel/config-go-arm64.txt), [`kernel/config-vz-arm64.txt`](kernel/config-vz-arm64.txt), and [`kernel/config-fragment`](kernel/config-fragment), runs `olddefconfig`, then builds an **uncompressed** `arch/arm64/boot/Image` copied to `artifacts/Image` with the final `.config` saved as `artifacts/kernel.config`.
 
 **`VZLinuxBootLoader` requires an uncompressed `Image`, not `Image.gz`.**
 
 Knobs:
 
 - `LINUX_REF` (default `master`), `LINUX_REPO`, `JOBS` — passed into the container; changing ref re-clones.
-- `DIOS_KERNEL_CLEAN=1` — wipe the volume and start over.
-- `DIOS_KERNEL_IMAGE` — override the toolchain image tag.
-- Podman Machine bind-mount note: only paths under `$HOME` are shared, so `build-kernel.sh` stages `Image`/`kernel.config` via `${DIOS_PODMAN_OUT:-${HOME}/.cache/dios-kernel-out}`.
+- `DIORAMA_VM_KERNEL_CLEAN=1` — wipe the volume and start over.
+- `DIORAMA_VM_KERNEL_IMAGE` — override the toolchain image tag.
+- Podman Machine bind-mount note: only paths under `$HOME` are shared, so `build-kernel.sh` stages `Image`/`kernel.config` via `${DIORAMA_VM_PODMAN_OUT:-${HOME}/.cache/diorama-vm-kernel-out}`.
 
 Kconfig silently drops requested `CONFIG_X=y` lines whose dependencies are unmet or whose symbols were removed. The build prints a loud `WARNING` listing any dropped options — check it after `make kernel`, and compare against `artifacts/kernel.config` when debugging.
 
 ## OCI bundle
 
-`make bundle` exports **`busybox:1.36`** for `linux/arm64` into `artifacts/bundle/rootfs` (~4 MiB vs a full Alpine). Override with `DIOS_BUNDLE_IMAGE=alpine:latest` if you need apk. Drop in your own `artifacts/bundle/config.json` or let the boot script run `runsc spec`.
+`make bundle` exports **`busybox:1.36`** for `linux/arm64` into `artifacts/bundle/rootfs` (~4 MiB vs a full Alpine). Override with `DIORAMA_VM_BUNDLE_IMAGE=alpine:latest` if you need apk. Drop in your own `artifacts/bundle/config.json` or let the boot script run `runsc spec`.
 
 The initramfs lists only the u-root commands required for [`guest/boot.sh`](guest/boot.sh) ([`guest/u-root-cmds.txt`](guest/u-root-cmds.txt)), not the full `core` bundle. The guest kernel is built from **`tinyconfig`** plus [`kernel/config-go-arm64.txt`](kernel/config-go-arm64.txt), [`kernel/config-vz-arm64.txt`](kernel/config-vz-arm64.txt), and [`kernel/config-fragment`](kernel/config-fragment), not `defconfig`.
 
@@ -113,7 +111,7 @@ cd microvm
 swift build -c release
 codesign --force --entitlements vm.entitlements -s - .build/release/microvm
 cd ..
-DIOS_ROOT="$(pwd)" microvm/.build/release/microvm
+DIORAMA_VM_ROOT="$(pwd)" microvm/.build/release/microvm
 ```
 
 ## Verification checklist
@@ -134,7 +132,7 @@ DIOS_ROOT="$(pwd)" microvm/.build/release/microvm
 | Boot hangs or Go panics early after a kernel change | Missing kernel options — check the WARNING list from `make kernel` and `artifacts/kernel.config` |
 | runsc seccomp / namespace errors | Missing kernel options — re-check `kernel/config-fragment` + `config-go-arm64.txt`; run smoke test in `boot.sh` |
 | `start failed` / permissions | Sign with [`microvm/vm.entitlements`](microvm/vm.entitlements) (`com.apple.security.virtualization`) |
-| `missing … artifacts/…` from Swift | Run the corresponding `make` target; set `DIOS_ROOT` if not run from the repo |
+| `missing … artifacts/…` from Swift | Run the corresponding `make` target; set `DIORAMA_VM_ROOT` if not run from the repo |
 
 ## Next steps (out of MVP scope)
 
