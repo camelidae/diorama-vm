@@ -1,20 +1,13 @@
-CONFIG_VIRTIO=y
-CONFIG_VIRTIO_PCI=y
-CONFIG_VIRTIO_CONSOLE=y
-CONFIG_VIRTIO_NET=y
-CONFIG_HW_RANDOM_VIRTIO=y
-CONFIG_FUSE_FS=y
-CONFIG_VIRTIO_FS=y
-CONFIG_BLK_DEV_INITRD=y
-CONFIG_DEVTMPFS=y
-CONFIG_DEVTMPFS_MOUNT=y
+# What runsc (gVisor) itself needs from the guest kernel.
+# systrap platform: seccomp filters with SECCOMP_RET_TRAP
 CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y
+# sandbox + gofer isolation
 CONFIG_NAMESPACES=y
 CONFIG_USER_NS=y
 CONFIG_PID_NS=y
 CONFIG_NET_NS=y
 CONFIG_IPC_NS=y
 CONFIG_UTS_NS=y
+# runs with --ignore-cgroups, but runsc probes for cgroupfs
 CONFIG_CGROUPS=y
-CONFIG_TMPFS=y

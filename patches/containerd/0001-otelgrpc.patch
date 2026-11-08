@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: dios <dios@local>
+Date: Sat, 7 Nov 2026 00:00:00 +0000
+Subject: [PATCH] containerd: replace removed otelgrpc interceptors with stats handler
+
+gVisor's go.mod pulls go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc
+>= v0.63, where UnaryClientInterceptor/StreamClientInterceptor were removed.
+Use the supported stats-handler API instead. Revisit on containerd >= v2.2.
+
+--- a/core/runtime/v2/shim.go
++++ b/core/runtime/v2/shim.go
+@@ -306,8 +306,7 @@
+ 	case "grpc":
+ 		gopts := []grpc.DialOption{
+ 			grpc.WithTransportCredentials(insecure.NewCredentials()),
+-			grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),   //nolint:staticcheck // Ignore SA1019. Deprecation assumes use of [grpc.NewClient] but we are not using that here.
+-			grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()), //nolint:staticcheck // Ignore SA1019. Deprecation assumes use of [grpc.NewClient] but we are not using that here.
++			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+ 		}
+ 		return grpcDialContext(params.Address, onClose, gopts...)
+ 	default:

@@ -2,6 +2,42 @@ github.com/u-root/u-root/cmds/core/init
 github.com/u-root/u-root/cmds/core/gosh
 github.com/u-root/u-root/cmds/core/mkdir
 github.com/u-root/u-root/cmds/core/mount
+github.com/u-root/u-root/cmds/core/umount
 github.com/u-root/u-root/cmds/core/ip
 github.com/u-root/u-root/cmds/core/dhclient
+# `runsc do` runs this from the initramfs root, inside gVisor
 github.com/u-root/u-root/cmds/core/echo
+# power off when the container exits
+github.com/u-root/u-root/cmds/core/shutdown
+github.com/u-root/u-root/cmds/core/sleep
+# coreutils for debugging the guest (ls/cat/cp/mv/chmod/ps/uname/dmesg).
+github.com/u-root/u-root/cmds/core/ls
+github.com/u-root/u-root/cmds/core/cat
+github.com/u-root/u-root/cmds/core/cp
+github.com/u-root/u-root/cmds/core/mv
+github.com/u-root/u-root/cmds/core/chmod
+github.com/u-root/u-root/cmds/core/ps
+github.com/u-root/u-root/cmds/core/pidof
+github.com/u-root/u-root/cmds/core/uname
+github.com/u-root/u-root/cmds/core/dmesg
+github.com/u-root/u-root/cmds/core/rm
+github.com/u-root/u-root/cmds/core/date
+github.com/u-root/u-root/cmds/core/hexdump
+github.com/u-root/u-root/cmds/core/dd
+github.com/u-root/u-root/cmds/core/du
+github.com/u-root/u-root/cmds/core/df
+github.com/u-root/u-root/cmds/core/lddfiles
+github.com/u-root/u-root/cmds/core/tar
+github.com/u-root/u-root/cmds/core/gzip
+github.com/u-root/u-root/cmds/core/wc
+github.com/u-root/u-root/cmds/core/tail
+github.com/u-root/u-root/cmds/core/head
+github.com/u-root/u-root/cmds/core/grep
+github.com/u-root/u-root/cmds/core/timeout
+# containerd in bb (phase 4): shares most deps with the shim below.
+github.com/containerd/containerd/v2/cmd/containerd
+github.com/containerd/containerd/v2/cmd/ctr
+# shim wrapper: directory basename is the exact exec'd name.
+dios.cmds/containerd-shim-runsc-v1
+# vsock → containerd socket relay (phase 5).
+dios.cmds/dios-vsockd

@@ -1,29 +1,47 @@
-# Minimal arm64 virt guest: Go (u-root, dhclient), virtio, NAT networking.
-# Append after `make ARCH=arm64 tinyconfig` along with config-fragment.
-
+# Minimal arm64 virt guest: what Go binaries (u-root, runsc) and the
+# initramfs need. Merged on top of `make ARCH=arm64 tinyconfig`.
+# tinyconfig turns on EXPERT and then switches off many "you surely want
+# this" options; the ones Go/gVisor rely on are re-enabled below.
 CONFIG_64BIT=y
-CONFIG_ARCH_VIRT=y
-CONFIG_PCI=y
-CONFIG_PCI_HOST_GENERIC=y
-
-CONFIG_BINFMT_ELF=y
+CONFIG_PRINTK=y
+CONFIG_BUG=y
+CONFIG_MULTIUSER=y
+CONFIG_ADVISE_SYSCALLS=y
+CONFIG_SHMEM=y
+CONFIG_TMPFS=y
 CONFIG_EPOLL=y
+CONFIG_EVENTFD=y
+CONFIG_SIGNALFD=y
+CONFIG_TIMERFD=y
 CONFIG_FUTEX=y
 CONFIG_POSIX_TIMERS=y
-CONFIG_UNIX=y
-CONFIG_PRINTK=y
+CONFIG_HIGH_RES_TIMERS=y
+CONFIG_SYSVIPC=y
+CONFIG_SYSCTL=y
+# NOTE: no CONFIG_PROC_SYSCTL — that symbol was removed upstream and
+# /proc/sys is now unconditional (grep finds no reference in fs/proc/).
+CONFIG_FILE_LOCKING=y
+CONFIG_INOTIFY_USER=y
 CONFIG_PROC_FS=y
 CONFIG_SYSFS=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
 
+# initramfs: zstd-compressed cpio from `make initramfs`
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_ZSTD=y
+CONFIG_RD_GZIP=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+
+# console + ptys (runsc spec defaults to terminal: true)
+CONFIG_TTY=y
+CONFIG_UNIX98_PTYS=y
+CONFIG_HVC_DRIVER=y
+
+# networking for dhclient + --network=host
 CONFIG_NET=y
 CONFIG_INET=y
+CONFIG_UNIX=y
 CONFIG_PACKET=y
 CONFIG_NETDEVICES=y
-
-CONFIG_TTY=y
-CONFIG_HVC_DRIVER=y
-CONFIG_HVC_IRQ=y
-CONFIG_SERIAL_CORE=y
-
-CONFIG_ARCH_RANDOM=y
-CONFIG_RANDOM_TRUST_CPU=y

@@ -1,0 +1,12 @@
+# Shim-level runsc options (read by containerd-shim-runsc-v1 from
+# /etc/containerd/runsc/config.toml). binary_name is absolute so the shim
+# never depends on PATH or on its own location default. runsc_config entries
+# become --key=value flags (runsccmd args builder); bools take "true".
+binary_name = "/bin/runsc"
+log_level = "debug"
+
+[runsc_config]
+  ignore-cgroups = "true"
+  network = "host"
+  overlay2 = "root:memory"
+  debug = "true"

@@ -1,0 +1,18 @@
+diff --git a/pkg/shim/v1/manager.go b/pkg/shim/v1/manager.go
+index a4d14c9..47b87a8 100644
+--- a/pkg/shim/v1/manager.go
++++ b/pkg/shim/v1/manager.go
+@@ -69,10 +69,9 @@ func newCommand(ctx context.Context, id, containerdAddress string, debug bool) (
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	self, err := os.Executable()
+-	if err != nil {
+-		return nil, err
+-	}
++	// NOTE(dios): os.Executable() resolves symlinks to the gobusybox binary
++	// (/bbin/bb), breaking bb dispatch on re-exec. Keep the invoked name.
++	self := os.Args[0]
+ 	cwd, err := os.Getwd()
+ 	if err != nil {
+ 		return nil, err

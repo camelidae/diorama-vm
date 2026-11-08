@@ -8,3 +8,5 @@ microvm/.build/
 # Local scratch
 *.sha256
 .DS_Store
+prompt.md
+todo
