@@ -1,0 +1,107 @@
+diff --git a/pkg/shim/v1/proc/init.go b/pkg/shim/v1/proc/init.go
+index 032371e..e0c1e03 100644
+--- a/pkg/shim/v1/proc/init.go
++++ b/pkg/shim/v1/proc/init.go
+@@ -97,12 +97,15 @@ type Init struct {
+ 
+ 	// sandboxPidfd pins the sandbox process identity. It is only populated for
+ 	// the sandbox task and is used when explicit SIGKILL --all times out.
+-	sandboxPidfdMu sync.Mutex
+-	sandboxPidfd   int
+-	ioWaitOnce     sync.Once
+-	ioDone         chan struct{}
+-	ioCloseOnce    sync.Once
+-	rootfsCleanup  utils.Cleanup
++	sandboxPidfdMu  sync.Mutex
++	sandboxPidfd    int
++	sandboxExitCh   chan int
++	sandboxExitOnce sync.Once
++	sandboxUnsub    func()
++	ioWaitOnce      sync.Once
++	ioDone          chan struct{}
++	ioCloseOnce     sync.Once
++	rootfsCleanup   utils.Cleanup
+ }
+ 
+ // NewRunsc returns a new runsc instance for a process.
+@@ -166,6 +169,22 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) (err error) {
+ 	if socket != nil {
+ 		opts.ConsoleSocket = socket
+ 	}
++	// NOTE(diorama-vm): when a root/sandbox container exits before `runsc wait`
++	// connects over the control socket, `runsc wait` fails with "sandbox no
++	// longer running and its exit status is unavailable" because it is not the
++	// sandbox's parent (`!s.child`). The shim is a child subreaper and reaps
++	// the `runsc-sandbox` process (`p.pid`, which exits with the root
++	// container's WaitStatus) via `p.Monitor` (`reaper.Default`). Subscribe
++	// before `runtime.Create` so we can recover the reaped exit status.
++	var eventCh chan runc.Exit
++	if p.Sandbox && p.Monitor != nil {
++		eventCh = p.Monitor.Subscribe()
++		defer func() {
++			if err != nil {
++				p.Monitor.Unsubscribe(eventCh)
++			}
++		}()
++	}
+ 	if p.Sandbox {
+ 		opts.IO = p.io
+ 		// UserLog is only useful for sandbox.
+@@ -180,9 +199,30 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) (err error) {
+ 	}
+ 	p.pid = pid
+ 	if p.Sandbox {
++		if eventCh != nil {
++			p.sandboxExitCh = make(chan int, 1)
++			p.sandboxUnsub = func() {
++				p.sandboxExitOnce.Do(func() {
++					p.Monitor.Unsubscribe(eventCh)
++				})
++			}
++			go func(pid int) {
++				defer p.sandboxUnsub()
++				for event := range eventCh {
++					if event.Pid == pid {
++						p.sandboxExitCh <- event.Status
++						close(p.sandboxExitCh)
++						return
++					}
++				}
++			}(p.pid)
++		}
+ 		p.pinSandboxPidfd(ctx)
+ 		defer func() {
+ 			if err != nil {
++				if p.sandboxUnsub != nil {
++					p.sandboxUnsub()
++				}
+ 				p.closeSandboxPidfd()
+ 			}
+ 		}()
+@@ -442,6 +482,16 @@ func (p *Init) start(ctx context.Context, restoreConf *extension.RestoreConfig)
+ 	}
+ 	go func() {
+ 		status, err := p.runtime.Wait(context.Background(), p.id)
++		if err != nil && p.sandboxExitCh != nil {
++			select {
++			case sandboxStatus, ok := <-p.sandboxExitCh:
++				if ok {
++					status = sandboxStatus
++					err = nil
++				}
++			case <-time.After(5 * time.Second):
++			}
++		}
+ 		if err != nil {
+ 			log.G(ctx).WithError(err).Errorf("Failed to wait for container %q", p.id)
+ 			p.KillAll(context.Background())
+@@ -525,6 +575,9 @@ func (p *Init) setExited(status int) {
+ 
+ // Delete deletes the init process.
+ func (p *Init) Delete(ctx context.Context) error {
++	if p.sandboxUnsub != nil {
++		defer p.sandboxUnsub()
++	}
+ 	defer p.closeExitedSandboxPidfd()
+ 	ctx, unlock, err := p.lockRuntime(ctx)
+ 	if err != nil {
