@@ -1,0 +1,88 @@
+# Publish Image + runsc as GitHub Release assets for oci-lib (and diorama).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create or refresh (e.g. v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ github.event.inputs.tag || '' }}
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    uses: ./.github/workflows/ci.yml
+
+  github-release:
+    name: Publish GitHub release
+    needs: feed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$tag" =~ ^v[0-9] ]]; then
+            echo "refusing non-version tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: diorama-vm-feed
+          path: dist
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd dist
+          test -f Image
+          test -f runsc
+          test -f kernel.config
+          test -f SHA256SUMS
+          notes="$(mktemp)"
+          cat >"$notes" <<EOF
+          ## diorama-vm ${TAG}
+
+          Arm64 guest feed for [oci-lib](https://github.com/camelidae/oci-lib) (and the diorama macOS VM release ladder):
+
+          - \`Image\` — uncompressed Linux arm64 kernel (VZLinuxBootLoader)
+          - \`kernel.config\` — final merged Kconfig
+          - \`runsc\` — gVisor OCI runtime (linux/arm64)
+          - \`SHA256SUMS\` — checksums for the blobs above
+
+          oci-lib wires these into \`crates/oci-cri/guest/out\` via \`scripts/wire-diorama-vm-guest.sh\` or release \`ROK_GUEST_KERNEL_SRC\` / \`ROK_RUNSC\`.
+          EOF
+          # Strip leading indentation from the heredoc.
+          sed -i 's/^          //' "$notes"
+          assets=(Image kernel.config runsc SHA256SUMS)
+          if [[ -f runsc.sha256 ]]; then
+            assets+=(runsc.sha256)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh release edit "$TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file "$notes" "${assets[@]}"
+          fi
