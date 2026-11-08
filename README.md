@@ -1,6 +1,8 @@
 # dios
 
-Apple Silicon micro-VM whose guest userland is a **u-root** initramfs with **gVisor `runsc`** as the OCI runtime. A small **Swift** program on macOS uses **Virtualization.framework** to boot the VM. Every runtime blob lives under [`artifacts/`](artifacts/) in this repository (nothing under `$HOME`).
+A micro-VM w/ guest userland
+
+**u-root** initramfs with **gVisor `runsc`** as the OCI runtime. A small **Swift** program on macOS uses **Virtualization.framework** to boot the VM. Every runtime blob lives under [`artifacts/`](artifacts/) in this repository (nothing under `$HOME`).
 
 ## Architecture
 
