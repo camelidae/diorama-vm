@@ -75,7 +75,17 @@ cp -f "${PODMAN_OUT}/kernel.config" "${ARTIFACTS}/kernel.config"
 # feature, so fail the build instead. See kernel/config-fragment for why
 # MEMBARRIER is required (Wasmtime under gVisor on aarch64).
 missing=""
-for option in CONFIG_MEMBARRIER CONFIG_CGROUPS CONFIG_SECCOMP_FILTER; do
+for option in \
+  CONFIG_MEMBARRIER \
+  CONFIG_CGROUPS \
+  CONFIG_SECCOMP_FILTER \
+  CONFIG_VETH \
+  CONFIG_BRIDGE \
+  CONFIG_NET_CLS \
+  CONFIG_CGROUP_NET_CLASSID \
+  CONFIG_NET_SCHED \
+  CONFIG_BRIDGE_NETFILTER \
+  CONFIG_IP_NF_TARGET_MASQUERADE; do
   grep -qx "${option}=y" "${ARTIFACTS}/kernel.config" || missing="${missing} ${option}"
 done
 if [[ -n "${missing}" ]]; then
