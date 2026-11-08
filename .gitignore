@@ -10,3 +10,4 @@ microvm/.build/
 .DS_Store
 prompt.md
 todo
+/.idea/
