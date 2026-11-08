@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Clone pinned gVisor + containerd into artifacts/.src, apply patches/*,
-# and write a go.work linking them with vendor/u-root.
+# Clone pinned u-root, gVisor and containerd into artifacts/.src, apply
+# patches/*, and write a go.work linking them with cmds/.
+#
+# Nothing upstream is committed: third_party/pins records the exact SHAs and
+# this script materializes them. u-root is fetched like the others rather than
+# vendored in-tree, so its own vendor/ tree (which upstream commits) comes
+# along with the clone and offline builds still work.
 # No `go work replace` version overrides: the otelgrpc skew is fixed by the
 # containerd source patch instead (see patches/containerd/0001-otelgrpc.patch).
 set -euo pipefail
@@ -37,6 +42,7 @@ clone_or_update() {
   fi
 }
 
+clone_or_update "${UROOT_REPO}" "${UROOT_PIN}" "${SRC}/u-root" "${UROOT_BRANCH:-}"
 clone_or_update "${GVISOR_REPO}" "${GVISOR_PIN}" "${SRC}/gvisor" "${GVISOR_BRANCH:-go}"
 clone_or_update "${CONTAINERD_REPO}" "${CONTAINERD_PIN}" "${SRC}/containerd" "${CONTAINERD_BRANCH:-}"
 
@@ -62,12 +68,13 @@ cat > "${SRC}/go.work" <<EOF
 go 1.27.3
 
 use (
-	${DIORAMA_VM_ROOT}/vendor/u-root
+	${SRC}/u-root
 	${DIORAMA_VM_ROOT}/cmds
 	${SRC}/gvisor
 	${SRC}/containerd
 )
 EOF
 echo "wrote ${SRC}/go.work"
+git -C "${SRC}/u-root" rev-parse HEAD
 git -C "${SRC}/gvisor" rev-parse HEAD
 git -C "${SRC}/containerd" rev-parse HEAD

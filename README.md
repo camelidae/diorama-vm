@@ -26,7 +26,7 @@ Success: console shows kernel boot, u-root, **`gVisor alive`**, then an interact
 |------|---------|
 | **macOS 13+**, Apple Silicon | Virtualization.framework arm64 Linux boot |
 | **Xcode / swift** 5.9+ | Build `microvm` |
-| **Go 1.26+** | Build vendored `u-root` (see `vendor/u-root/go.mod`) |
+| **Go 1.26+** | Build pinned `u-root` (see `third_party/pins`) |
 | **podman** | Build guest kernel in Linux container |
 | **zstd** | Compress initramfs (`brew install zstd`) |
 | **crane** (optional until bundle step) | `go install github.com/google/go-containerregistry/cmd/crane@latest` |
@@ -147,7 +147,10 @@ DIORAMA_VM_ROOT="$(pwd)" microvm/.build/release/microvm
 |------|------|
 | `artifacts/` | Gitignored VM inputs (tracked `.gitkeep` only) |
 | `guest/boot.sh` | Guest uinit script |
-| `scripts/` | fetch runsc, initramfs, bundle, kernel |
+| `scripts/` | fetch pinned sources, runsc, initramfs, bundle, kernel |
 | `kernel/` | Toolchain Dockerfile + in-container build + Kconfig fragments |
 | `microvm/` | Swift VZ launcher |
-| `vendor/u-root/` | Vendored u-root; bump intentionally |
+| `third_party/pins` | Pinned u-root / gVisor / containerd SHAs (fetched by `make src`) |
+
+Nothing upstream is committed: `make src` clones `third_party/pins` into the
+gitignored `artifacts/.src/`, and `make initramfs` builds from there.

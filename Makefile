@@ -1,10 +1,11 @@
-.PHONY: all runsc initramfs bundle kernel microvm run sizes clean-artifacts help
+.PHONY: all runsc src initramfs bundle kernel microvm run sizes clean-artifacts help
 
 DIORAMA_VM_ROOT := $(shell bash scripts/diorama-vm-root.sh)
 export DIORAMA_VM_ROOT
 
 ARTIFACTS   := $(DIORAMA_VM_ROOT)/artifacts
 MICROVM_BIN := $(DIORAMA_VM_ROOT)/microvm/.build/release/microvm
+SRC_STAMP   := $(ARTIFACTS)/.src/.stamp
 
 # Where runsc comes from: "release" (prebuilt, already stripped) or "build"
 # (gVisor go branch, built with -trimpath -ldflags="-s -w").
@@ -24,6 +25,7 @@ all: $(INITRD) $(BUNDLE)
 
 help:
 	@echo "diorama-vm microvm targets (real file targets: only stale/missing pieces rebuild):"
+	@echo "  make src        - fetch pinned u-root + gVisor + containerd into artifacts/.src"
 	@echo "  make runsc      - linux/arm64 runsc (RUNSC_SOURCE=release|build)"
 	@echo "  make initramfs  - u-root cpio + zstd-compressed initramfs.cpio.zst"
 	@echo "  make bundle     - OCI rootfs for artifacts/bundle"
@@ -36,6 +38,7 @@ help:
 	@echo "Force a rebuild with -B, e.g. 'make -B bundle'."
 
 runsc:     $(RUNSC)
+src:       $(SRC_STAMP)
 initramfs: $(INITRD)
 bundle:    $(BUNDLE)
 kernel:    $(KERNEL)
@@ -45,7 +48,12 @@ microvm:   $(MICROVM_BIN)
 $(RUNSC): scripts/fetch-runsc.sh
 	bash scripts/fetch-runsc.sh $(if $(filter build,$(RUNSC_SOURCE)),--build,)
 
-$(CPIO): $(RUNSC) guest/boot.sh guest/u-root-cmds.txt scripts/build-initramfs.sh vendor/u-root/go.mod
+# Pinned upstream checkouts (third_party/pins) used to build the initramfs.
+$(SRC_STAMP): scripts/fetch-src.sh third_party/pins
+	bash scripts/fetch-src.sh
+	touch $@
+
+$(CPIO): $(RUNSC) $(SRC_STAMP) guest/boot.sh guest/u-root-cmds.txt scripts/build-initramfs.sh
 	bash scripts/build-initramfs.sh
 
 $(INITRD): $(CPIO)

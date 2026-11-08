@@ -1,0 +1,30 @@
+# Pinned upstream revisions, sourced by scripts/fetch-src.sh.
+#
+# Everything the guest builds against is fetched at these SHAs into
+# artifacts/.src/ (gitignored), never committed. Bump a pin only after the
+# matching patches/<name>/ still apply cleanly and `make initramfs` boots.
+#
+# Format: <NAME>_REPO / <NAME>_PIN / optional <NAME>_BRANCH.
+# A raw SHA is fetched directly, so _BRANCH is only a clone hint.
+
+# u-root: the initramfs userland. Builds the u-root tool (see
+# scripts/build-initramfs.sh) and is the go.work root for the guest.
+#
+# NOTE: upstream commits its own vendor/ tree (139 MiB, 112 modules), so a
+# clone carries everything needed for offline `go build`; do not prune it.
+# This pin is a moving master commit (untagged); u-root v7.0.0 is the last
+# tagged release if you need to roll back to something immutable.
+UROOT_REPO=https://github.com/u-root/u-root
+UROOT_PIN=22766f0846c8540266b2cf5124a78b62402c5a91
+UROOT_BRANCH=main
+
+# gVisor: the OCI runtime (runsc) and the containerd shim wrapper.
+# The go branch, not a release tag: patches/gvisor/*.patch target it.
+GVISOR_REPO=https://github.com/google/gvisor
+GVISOR_PIN=f7de07115b95b5718a3ecb04f0031a1dfebd6df3
+GVISOR_BRANCH=go
+
+# containerd v2.1.5: guest daemon + ctr, and the host-side client.
+CONTAINERD_REPO=https://github.com/containerd/containerd
+CONTAINERD_PIN=fcd43222d6b07379a4be9786bda52438f0dd16a1
+CONTAINERD_BRANCH=
