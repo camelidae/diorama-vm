@@ -1,4 +1,4 @@
-module dios.cmds
+module diorama-vm.cmds
 
 go 1.27.3
 
@@ -12,7 +12,7 @@ require (
 // not satisfy module-graph loads issued from a different main module
 // (vendor/u-root): the go command still tries to fetch go.mod at v0.0.0.
 // Pin to the local checkout (populated by scripts/fetch-src.sh) instead.
-// Relative to this file: dios/artifacts/.src/gvisor.
+// Relative to this file: diorama-vm/artifacts/.src/gvisor.
 replace gvisor.dev/gvisor => ../artifacts/.src/gvisor
 
 // Same treatment as gvisor: hostctr drives the guest daemon over the vsock

@@ -1,10 +1,10 @@
 .PHONY: all runsc initramfs bundle kernel microvm run sizes clean-artifacts help
 
-DIOS_ROOT := $(shell bash scripts/dios-root.sh)
-export DIOS_ROOT
+DIORAMA_VM_ROOT := $(shell bash scripts/diorama-vm-root.sh)
+export DIORAMA_VM_ROOT
 
-ARTIFACTS   := $(DIOS_ROOT)/artifacts
-MICROVM_BIN := $(DIOS_ROOT)/microvm/.build/release/microvm
+ARTIFACTS   := $(DIORAMA_VM_ROOT)/artifacts
+MICROVM_BIN := $(DIORAMA_VM_ROOT)/microvm/.build/release/microvm
 
 # Where runsc comes from: "release" (prebuilt, already stripped) or "build"
 # (gVisor go branch, built with -trimpath -ldflags="-s -w").
@@ -23,7 +23,7 @@ MICROVM_INPUTS := $(wildcard microvm/Sources/microvm/*.swift) microvm/Package.sw
 all: $(INITRD) $(BUNDLE)
 
 help:
-	@echo "dios microvm targets (real file targets: only stale/missing pieces rebuild):"
+	@echo "diorama-vm microvm targets (real file targets: only stale/missing pieces rebuild):"
 	@echo "  make runsc      - linux/arm64 runsc (RUNSC_SOURCE=release|build)"
 	@echo "  make initramfs  - u-root cpio + zstd-compressed initramfs.cpio.zst"
 	@echo "  make bundle     - OCI rootfs for artifacts/bundle"
@@ -75,7 +75,7 @@ $(MICROVM_BIN): $(MICROVM_INPUTS)
 	codesign --force --entitlements microvm/vm.entitlements -s - $@
 
 run: $(KERNEL) $(INITRD) $(BUNDLE) $(DISK) $(MICROVM_BIN)
-	DIOS_ROOT=$(DIOS_ROOT) $(MICROVM_BIN)
+	DIORAMA_VM_ROOT=$(DIORAMA_VM_ROOT) $(MICROVM_BIN)
 
 sizes:
 	@cd $(ARTIFACTS) && ls -lh Image initramfs.cpio initramfs.cpio.zst runsc disk.img 2>/dev/null || true

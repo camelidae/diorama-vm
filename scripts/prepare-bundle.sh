@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DIOS_ROOT="$(bash "$(dirname "$0")/dios-root.sh")"
-BUNDLE="${DIOS_ROOT}/artifacts/bundle"
+DIORAMA_VM_ROOT="$(bash "$(dirname "$0")/diorama-vm-root.sh")"
+BUNDLE="${DIORAMA_VM_ROOT}/artifacts/bundle"
 ROOTFS="${BUNDLE}/rootfs"
 
 if ! command -v crane &>/dev/null; then
@@ -22,7 +22,7 @@ if [[ -z "${DOCKER_CONFIG:-}" ]] && ! docker-credential-desktop version &>/dev/n
   printf '%s\n' '{"auths":{}}' >"${DOCKER_CONFIG}/config.json"
 fi
 
-BUNDLE_IMAGE="${DIOS_BUNDLE_IMAGE:-busybox:1.36}"
+BUNDLE_IMAGE="${DIORAMA_VM_BUNDLE_IMAGE:-busybox:1.36}"
 crane export --platform linux/arm64 "${BUNDLE_IMAGE}" - | tar -x -C "${ROOTFS}"
 
 echo "OCI rootfs (${BUNDLE_IMAGE}) -> ${ROOTFS}"

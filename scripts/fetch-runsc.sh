@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-DIOS_ROOT="$(bash "$(dirname "$0")/dios-root.sh")"
-ARTIFACTS="${DIOS_ROOT}/artifacts"
+DIORAMA_VM_ROOT="$(bash "$(dirname "$0")/diorama-vm-root.sh")"
+ARTIFACTS="${DIORAMA_VM_ROOT}/artifacts"
 OUT="${ARTIFACTS}/runsc"
 BUILD=0
 

@@ -7,10 +7,10 @@ index abdbbe4..65c40ab 100644
  	p.IoUID = int(options.IoUID)
  	p.IoGID = int(options.IoGID)
 -	p.Sandbox = specutils.SpecContainerType(spec) == specutils.ContainerTypeSandbox
-+	// NOTE(dios): plain `ctr run` specs carry no CRI container-type
++	// NOTE(diorama-vm): plain `ctr run` specs carry no CRI container-type
 +	// annotation, which upstream treats as a workload container whose stdio
 +	// is wired at `runsc start` time. Without a pod sandbox that path
-+	// EPIPEs the sentry on first stdout write. Every dios container is its
++	// EPIPEs the sentry on first stdout write. Every diorama-vm container is its
 +	// own sandbox, so default to sandbox unless explicitly marked a
 +	// workload container.
 +	p.Sandbox = specutils.SpecContainerType(spec) != specutils.ContainerTypeContainer

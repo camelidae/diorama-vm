@@ -38,6 +38,6 @@ github.com/u-root/u-root/cmds/core/timeout
 github.com/containerd/containerd/v2/cmd/containerd
 github.com/containerd/containerd/v2/cmd/ctr
 # shim wrapper: directory basename is the exact exec'd name.
-dios.cmds/containerd-shim-runsc-v1
+diorama-vm.cmds/containerd-shim-runsc-v1
 # vsock → containerd socket relay (phase 5).
-dios.cmds/dios-vsockd
+diorama-vm.cmds/diorama-vm-vsockd

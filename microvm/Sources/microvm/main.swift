@@ -1,14 +1,14 @@
 import Foundation
 import Virtualization
 
-func resolveDiosRoot() -> URL {
-    if let env = ProcessInfo.processInfo.environment["DIOS_ROOT"], !env.isEmpty {
+func resolveDioramaVMRoot() -> URL {
+    if let env = ProcessInfo.processInfo.environment["DIORAMA_VM_ROOT"], !env.isEmpty {
         let url = URL(fileURLWithPath: env, isDirectory: true)
         let marker = url.appendingPathComponent("guest/boot.sh")
         if FileManager.default.fileExists(atPath: marker.path) {
             return url
         }
-        fputs("DIOS_ROOT is set but guest/boot.sh is missing at \(marker.path)\n", stderr)
+        fputs("DIORAMA_VM_ROOT is set but guest/boot.sh is missing at \(marker.path)\n", stderr)
         exit(1)
     }
     var dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
@@ -25,7 +25,7 @@ func resolveDiosRoot() -> URL {
         dir = parent
     }
     fputs(
-        "Could not find dios repo root. cd into the repo or set DIOS_ROOT.\n",
+        "Could not find diorama-vm repo root. cd into the repo or set DIORAMA_VM_ROOT.\n",
         stderr
     )
     exit(1)
@@ -76,8 +76,8 @@ final class VMDelegate: NSObject, VZVirtualMachineDelegate {
     }
 }
 
-let diosRoot = resolveDiosRoot()
-let artifacts = diosRoot.appendingPathComponent("artifacts", isDirectory: true)
+let dioramaVMRoot = resolveDioramaVMRoot()
+let artifacts = dioramaVMRoot.appendingPathComponent("artifacts", isDirectory: true)
 let kernelURL = artifacts.appendingPathComponent("Image")
 let initrdURL = resolveInitrd(in: artifacts)
 let bundleURL = artifacts.appendingPathComponent("bundle", isDirectory: true)
@@ -137,7 +137,7 @@ if FileManager.default.fileExists(atPath: diskURL.path) {
     }
 }
 
-// vsock control plane: guest dios-vsockd listens on CID_ANY:1024 and relays
+// vsock control plane: guest diorama-vm-vsockd listens on CID_ANY:1024 and relays
 // to /run/containerd/containerd.sock. Bridge host unix socket
 // artifacts/run/containerd.sock to guest port 1024.
 config.socketDevices = [VZVirtioSocketDeviceConfiguration()]

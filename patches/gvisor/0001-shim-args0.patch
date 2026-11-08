@@ -10,7 +10,7 @@ index a4d14c9..47b87a8 100644
 -	if err != nil {
 -		return nil, err
 -	}
-+	// NOTE(dios): os.Executable() resolves symlinks to the gobusybox binary
++	// NOTE(diorama-vm): os.Executable() resolves symlinks to the gobusybox binary
 +	// (/bbin/bb), breaking bb dispatch on re-exec. Keep the invoked name.
 +	self := os.Args[0]
  	cwd, err := os.Getwd()
