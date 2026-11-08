@@ -1,0 +1,74 @@
+# Build the arm64 guest kernel and fetch runsc so oci-lib can consume them.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_call:
+    outputs:
+      artifact_name:
+        description: Name of the uploaded feed artifact
+        value: diorama-vm-feed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LINUX_REF: linux-6.12.y
+  CONTAINER_ENGINE: docker
+  DIORAMA_VM_PODMAN_OUT: ${{ github.workspace }}/.cache/kernel-out
+  DIORAMA_VM_KERNEL_SRC: ${{ github.workspace }}/.cache/linux-src
+
+jobs:
+  feed:
+    name: Image + runsc (arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Linux source and objects
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.DIORAMA_VM_KERNEL_SRC }}
+            ${{ env.DIORAMA_VM_PODMAN_OUT }}
+          key: kernel-${{ env.LINUX_REF }}-${{ hashFiles('kernel/**', 'scripts/build-kernel.sh') }}
+          restore-keys: |
+            kernel-${{ env.LINUX_REF }}-
+
+      - name: Fetch runsc
+        run: make runsc
+
+      - name: Build kernel Image
+        run: make kernel
+
+      - name: Require CONFIG_BLK_DEV_LOOP
+        run: |
+          set -euo pipefail
+          grep -E '^CONFIG_BLK_DEV_LOOP=y$' artifacts/kernel.config
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum Image kernel.config runsc > SHA256SUMS
+          ls -lh Image kernel.config runsc SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diorama-vm-feed
+          path: |
+            artifacts/Image
+            artifacts/kernel.config
+            artifacts/runsc
+            artifacts/runsc.sha256
+            artifacts/SHA256SUMS
+          if-no-files-found: error
