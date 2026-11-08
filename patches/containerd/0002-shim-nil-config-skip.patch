@@ -1,0 +1,208 @@
+diff --git a/plugins/cri/cri.go b/plugins/cri/cri.go
+index b87be27..cb59a73 100644
+--- a/plugins/cri/cri.go
++++ b/plugins/cri/cri.go
+@@ -66,7 +66,12 @@ func init() {
+ 
+ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
+ 	ctx := ic.Context
+-	config := ic.Config.(*criconfig.ServerConfig)
++	config, ok := ic.Config.(*criconfig.ServerConfig)
++	if !ok || config == nil {
++		// Daemon-only plugin: skip when inited without config
++		// (e.g. shim context in a combined binary).
++		return nil, plugin.ErrSkipPlugin
++	}
+ 
+ 	// Get runtime service.
+ 	criRuntimePlugin, err := ic.GetByID(plugins.CRIServicePlugin, "runtime")
+diff --git a/plugins/cri/runtime/plugin.go b/plugins/cri/runtime/plugin.go
+index d9c382a..215e11e 100644
+--- a/plugins/cri/runtime/plugin.go
++++ b/plugins/cri/runtime/plugin.go
+@@ -60,7 +60,12 @@ func initCRIRuntime(ic *plugin.InitContext) (interface{}, error) {
+ 	ic.Meta.Platforms = []imagespec.Platform{platforms.DefaultSpec()}
+ 	ic.Meta.Exports = map[string]string{"CRIVersion": constants.CRIVersion}
+ 	ctx := ic.Context
+-	pluginConfig := ic.Config.(*criconfig.RuntimeConfig)
++	pluginConfig, ok := ic.Config.(*criconfig.RuntimeConfig)
++	if !ok || pluginConfig == nil {
++		// Daemon-only plugin: skip when inited without config
++		// (e.g. shim context in a combined binary).
++		return nil, plugin.ErrSkipPlugin
++	}
+ 	if warnings, err := criconfig.ValidateRuntimeConfig(ctx, pluginConfig); err != nil {
+ 		return nil, fmt.Errorf("invalid plugin config: %w", err)
+ 	} else if len(warnings) > 0 {
+diff --git a/plugins/diff/erofs/plugin/plugin_linux.go b/plugins/diff/erofs/plugin/plugin_linux.go
+index 735afd1..1786f99 100644
+--- a/plugins/diff/erofs/plugin/plugin_linux.go
++++ b/plugins/diff/erofs/plugin/plugin_linux.go
+@@ -55,7 +55,12 @@ func init() {
+ 
+ 			ic.Meta.Platforms = append(ic.Meta.Platforms, platforms.DefaultSpec())
+ 			cs := md.(*metadata.DB).ContentStore()
+-			config := ic.Config.(*Config)
++			config, ok := ic.Config.(*Config)
++			if !ok || config == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
+ 
+ 			return erofs.NewErofsDiffer(cs, config.MkfsOptions), nil
+ 		},
+diff --git a/plugins/gc/scheduler.go b/plugins/gc/scheduler.go
+index ff78ede..a30b812 100644
+--- a/plugins/gc/scheduler.go
++++ b/plugins/gc/scheduler.go
+@@ -108,7 +108,13 @@ func init() {
+ 				return nil, fmt.Errorf("%s %T must implement collector", plugins.MetadataPlugin, md)
+ 			}
+ 
+-			m := newScheduler(mdCollector, ic.Config.(*config))
++			gcConfig, ok := ic.Config.(*config)
++			if !ok || gcConfig == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
++			m := newScheduler(mdCollector, gcConfig)
+ 
+ 			ic.Meta.Exports = map[string]string{
+ 				"PauseThreshold":    fmt.Sprint(m.pauseThreshold),
+diff --git a/plugins/imageverifier/plugin.go b/plugins/imageverifier/plugin.go
+index 9f73f16..2d27fcd 100644
+--- a/plugins/imageverifier/plugin.go
++++ b/plugins/imageverifier/plugin.go
+@@ -33,7 +33,12 @@ func init() {
+ 		ID:     "bindir",
+ 		Config: defaultConfig(),
+ 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
+-			cfg := ic.Config.(*bindir.Config)
++			cfg, ok := ic.Config.(*bindir.Config)
++			if !ok || cfg == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
+ 			return bindir.NewImageVerifier(cfg), nil
+ 		},
+ 	})
+diff --git a/plugins/nri/plugin.go b/plugins/nri/plugin.go
+index 31b6045..e1f9705 100644
+--- a/plugins/nri/plugin.go
++++ b/plugins/nri/plugin.go
+@@ -33,6 +33,12 @@ func init() {
+ }
+ 
+ func initFunc(ic *plugin.InitContext) (interface{}, error) {
+-	l, err := nri.New(ic.Config.(*nri.Config))
++	cfg, ok := ic.Config.(*nri.Config)
++	if !ok || cfg == nil {
++		// Daemon-only plugin: skip when inited without config
++		// (e.g. shim context in a combined binary).
++		return nil, plugin.ErrSkipPlugin
++	}
++	l, err := nri.New(cfg)
+ 	return l, err
+ }
+diff --git a/plugins/restart/monitor.go b/plugins/restart/monitor.go
+index 589e588..0a98b43 100644
+--- a/plugins/restart/monitor.go
++++ b/plugins/restart/monitor.go
+@@ -60,7 +60,13 @@ func init() {
+ 			m := &monitor{
+ 				client: client,
+ 			}
+-			go m.run(tomlext.ToStdTime(ic.Config.(*Config).Interval))
++			cfg, ok := ic.Config.(*Config)
++			if !ok || cfg == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
++			go m.run(tomlext.ToStdTime(cfg.Interval))
+ 			return m, nil
+ 		},
+ 		ConfigMigration: func(ctx context.Context, configVersion int, pluginConfigs map[string]interface{}) error {
+diff --git a/plugins/services/diff/local.go b/plugins/services/diff/local.go
+index 1b2c9f2..9f2650a 100644
+--- a/plugins/services/diff/local.go
++++ b/plugins/services/diff/local.go
+@@ -64,12 +64,18 @@ func init() {
+ 		},
+ 		Config: defaultDifferConfig,
+ 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
++			diffConfig, ok := ic.Config.(*config)
++			if !ok || diffConfig == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
++			syncFs := diffConfig.SyncFs
++			orderedNames := diffConfig.Order
+ 			differs, err := ic.GetByType(plugins.DiffPlugin)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+-			syncFs := ic.Config.(*config).SyncFs
+-			orderedNames := ic.Config.(*config).Order
+ 			ordered := make([]differ, len(orderedNames))
+ 			for i, n := range orderedNames {
+ 				d, ok := differs[n]
+diff --git a/plugins/services/opt/service.go b/plugins/services/opt/service.go
+index f9b1292..c4445b8 100644
+--- a/plugins/services/opt/service.go
++++ b/plugins/services/opt/service.go
+@@ -40,7 +40,13 @@ func init() {
+ 			Path: defaultPath,
+ 		},
+ 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
+-			path := ic.Config.(*Config).Path
++			optConfig, ok := ic.Config.(*Config)
++			if !ok || optConfig == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
++			path := optConfig.Path
+ 			ic.Meta.Exports["path"] = path
+ 			bin := filepath.Join(path, "bin")
+ 			if err := os.MkdirAll(bin, 0711); err != nil {
+diff --git a/plugins/services/tasks/local.go b/plugins/services/tasks/local.go
+index 30385e0..b8cb04a 100644
+--- a/plugins/services/tasks/local.go
++++ b/plugins/services/tasks/local.go
+@@ -97,7 +97,12 @@ func init() {
+ }
+ 
+ func initFunc(ic *plugin.InitContext) (interface{}, error) {
+-	config := ic.Config.(*Config)
++	config, ok := ic.Config.(*Config)
++	if !ok || config == nil {
++		// Daemon-only plugin: skip when inited without config
++		// (e.g. shim context in a combined binary).
++		return nil, plugin.ErrSkipPlugin
++	}
+ 
+ 	v2r, err := ic.GetByID(plugins.RuntimePluginV2, "task")
+ 	if err != nil {
+diff --git a/plugins/transfer/plugin.go b/plugins/transfer/plugin.go
+index c1041e9..cedc8b0 100644
+--- a/plugins/transfer/plugin.go
++++ b/plugins/transfer/plugin.go
+@@ -55,7 +55,12 @@ func init() {
+ 		},
+ 		Config: defaultConfig(),
+ 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
+-			config := ic.Config.(*transferConfig)
++			config, ok := ic.Config.(*transferConfig)
++			if !ok || config == nil {
++				// Daemon-only plugin: skip when inited without config
++				// (e.g. shim context in a combined binary).
++				return nil, plugin.ErrSkipPlugin
++			}
+ 			m, err := ic.GetSingle(plugins.MetadataPlugin)
+ 			if err != nil {
+ 				return nil, err
